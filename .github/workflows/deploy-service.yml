@@ -49,7 +49,7 @@ jobs:
           distribution: 'temurin'
       - name: Build jar
         working-directory: ${{ inputs.service_path }}
-        run: ./mvnw clean package -DskipTests
+        run: mvn clean package -DskipTests
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
