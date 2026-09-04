@@ -5,6 +5,10 @@ on:
       service_name:
         required: true
         type: string
+      container_name:
+        required: false
+        type: string
+        default: ""
       service_path:
         required: true
         type: string
@@ -72,15 +76,17 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             IMAGE=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service_name }}
+            CONTAINER_NAME="${{ inputs.container_name }}"
+            if [ -z "$CONTAINER_NAME" ]; then CONTAINER_NAME="${{ inputs.service_name }}"; fi
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
             sudo docker pull $IMAGE:latest
-            sudo docker stop ${{ inputs.service_name }} 2>/dev/null || true
-            sudo docker rm ${{ inputs.service_name }} 2>/dev/null || true
+            sudo docker stop $CONTAINER_NAME 2>/dev/null || true
+            sudo docker rm $CONTAINER_NAME 2>/dev/null || true
             sudo docker run -d \
               -p ${{ inputs.container_port }}:${{ inputs.container_port }} \
               -m ${{ inputs.memory_limit }} \
               --add-host=host.docker.internal:host-gateway \
-              --name ${{ inputs.service_name }} \
+              --name $CONTAINER_NAME \
               --restart unless-stopped \
               ${{ inputs.extra_run_args }} \
               $IMAGE:latest
