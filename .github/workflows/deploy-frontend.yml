@@ -1,0 +1,98 @@
+name: Build & Deploy Frontend
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      container_name:
+        required: false
+        type: string
+        default: ""
+      service_path:
+        required: true
+        type: string
+      host_port:
+        required: true
+        type: string
+      container_internal_port:
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_REGION:
+        required: true
+      AWS_ACCOUNT_ID:
+        required: true
+      EC2_HOST:
+        required: true
+      EC2_USER:
+        required: true
+      EC2_SSH_KEY:
+        required: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, push image
+        working-directory: ${{ inputs.service_path }}
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          IMAGE=$REGISTRY/${{ inputs.service_name }}
+          docker build --platform linux/amd64 \
+            --build-arg VITE_APP_NAME="ATS Platform" \
+            --build-arg VITE_API_BASE_URL="https://3-109-200-150.nip.io/api" \
+            --build-arg VITE_AUTH_GRAPHQL_URL="https://3-109-200-150.nip.io/api/auth/graphql" \
+            --build-arg VITE_USER_GRAPHQL_URL="https://3-109-200-150.nip.io/api/user/graphql" \
+            --build-arg VITE_API_TIMEOUT_MS=10000 \
+            --build-arg VITE_API_RETRY_MAX_ATTEMPTS=3 \
+            --build-arg VITE_API_RETRY_BASE_DELAY_MS=250 \
+            --build-arg VITE_API_RETRY_MAX_DELAY_MS=2000 \
+            --build-arg VITE_API_RETRY_JITTER=true \
+            --build-arg VITE_API_CREDENTIALS=omit \
+            --build-arg VITE_GOOGLE_CLIENT_ID="885294013072-okotbl1ikaqfhbd6uv4r25ahrd9b3p3i.apps.googleusercontent.com" \
+            --build-arg VITE_MICROSOFT_CLIENT_ID="f25a60c5-9c28-4831-a1f6-4b579478cf57" \
+            --build-arg VITE_MICROSOFT_TENANT_ID="8fd01e35-b4fc-4895-9a2b-773e529fbdb5" \
+            --build-arg VITE_MICROSOFT_REDIRECT_URI="https://3-109-200-150.nip.io/microsoft-redirect.html" \
+            -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            IMAGE=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ inputs.service_name }}
+            CONTAINER_NAME="${{ inputs.container_name }}"
+            if [ -z "$CONTAINER_NAME" ]; then CONTAINER_NAME="${{ inputs.service_name }}"; fi
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+            sudo docker pull $IMAGE:latest
+            sudo docker stop $CONTAINER_NAME 2>/dev/null || true
+            sudo docker rm $CONTAINER_NAME 2>/dev/null || true
+            sudo docker run -d \
+              -p ${{ inputs.host_port }}:${{ inputs.container_internal_port }} \
+              --name $CONTAINER_NAME \
+              --restart unless-stopped \
+              $IMAGE:latest
