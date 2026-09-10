@@ -61,6 +61,7 @@ jobs:
           docker build --platform linux/amd64 \
             --build-arg VITE_APP_NAME="ATS Platform" \
             --build-arg VITE_API_BASE_URL="https://3-109-200-150.nip.io/api" \
+            --build-arg VITE_RESUME_API_URL="http://13.201.83.169:8000" \
             --build-arg VITE_AUTH_GRAPHQL_URL="https://3-109-200-150.nip.io/api/auth/graphql" \
             --build-arg VITE_USER_GRAPHQL_URL="https://3-109-200-150.nip.io/api/user/graphql" \
             --build-arg VITE_API_TIMEOUT_MS=10000 \
